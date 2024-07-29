@@ -40,8 +40,14 @@ type Server struct {
 }
 
 func NewMinecraftServer(ip string, port uint16, version string) (server Server, err error) {
+	resolver := NewResolver()
+	resolve, host, detectedPort := resolver.SRVLookup(ip)
+	if resolve {
+		ip = host
+		port = detectedPort
+	}
 	addr := net.JoinHostPort(ip, strconv.Itoa(int(port)))
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 	if err != nil {
 		return
 	}
@@ -50,6 +56,14 @@ func NewMinecraftServer(ip string, port uint16, version string) (server Server, 
 	server.port = port
 	server.version = version
 	return
+}
+
+func (srv *Server) GetIP() string {
+	return srv.ip
+}
+
+func (srv *Server) GetPort() uint16 {
+	return srv.port
 }
 
 func (srv *Server) GetStatusRequest() (info ServerInfo, err error) {

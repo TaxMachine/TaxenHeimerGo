@@ -3,6 +3,8 @@ package Discord
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -18,12 +20,22 @@ type WebhookResponse struct {
 	Type          int    `json:"type"`
 }
 
+type WebhookError struct {
+	Message string `json:"message"`
+	Code    int32  `json:"code"`
+}
+
 type WebhookRequest struct {
 	Content   string  `json:"content"`
 	Username  string  `json:"username"`
 	AvatarUrl string  `json:"avatar_url"`
 	TTS       bool    `json:"tts"`
 	Embeds    []Embed `json:"embeds"`
+}
+
+type Webhook struct {
+	Url  string
+	Body WebhookRequest
 }
 
 type Embed struct {
@@ -59,16 +71,27 @@ type EmbedImage struct {
 	Url string `json:"url"`
 }
 
-func NewEmbed(title string, description string, color int) (embed Embed) {
-	embed = Embed{
-		Title:       title,
-		Description: description,
-		Color:       color,
-	}
+func NewEmbed() (embed Embed) {
+	embed = Embed{}
 	return
 }
 
+func (embed *Embed) SetTitle(title string) {
+	embed.Title = title
+}
+
+func (embed *Embed) SetDescription(description string) {
+	embed.Description = description
+}
+
+func (embed *Embed) SetColor(color int) {
+	embed.Color = color
+}
+
 func (embed *Embed) AddField(name string, value string, inline bool) {
+	if len(embed.Fields) == 25 {
+		return
+	}
 	embed.Fields = append(embed.Fields, EmbedField{
 		Name:   name,
 		Value:  value,
@@ -76,10 +99,67 @@ func (embed *Embed) AddField(name string, value string, inline bool) {
 	})
 }
 
-func SendWebhook(url string, body WebhookRequest) (success bool, err error) {
-	jsonBody, err := json.Marshal(&body)
+func (embed *Embed) AddAuthor(name string, url string, iconUrl string) {
+	embed.Author = EmbedAuthor{
+		Name:    name,
+		Url:     url,
+		IconUrl: iconUrl,
+	}
+}
+
+func (embed *Embed) AddFooter(text string, iconUrl string) {
+	embed.Footer = EmbedFooter{
+		Text:    text,
+		IconUrl: iconUrl,
+	}
+}
+
+func NewWebhook(url string) (webhook Webhook, err error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Add("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+
+	if res.StatusCode != 200 {
+		return Webhook{}, fmt.Errorf("invalid webhook")
+	}
+
+	webhook.Url = url
+
+	return
+}
+
+func (webhook *Webhook) SetUsername(username string) {
+	webhook.Body.Username = username
+}
+
+func (webhook *Webhook) SetAvatar(avatarUrl string) {
+	webhook.Body.AvatarUrl = avatarUrl
+}
+
+func (webhook *Webhook) SetMessage(message string) {
+	webhook.Body.Content = message
+}
+
+func (webhook *Webhook) AddEmbed(embed Embed) {
+	if len(webhook.Body.Embeds) == 10 {
+		return
+	}
+	webhook.Body.Embeds = append(webhook.Body.Embeds, embed)
+}
+
+func (webhook *Webhook) Send() (err error) {
+	jsonBody, err := json.Marshal(&webhook.Body)
+	if err != nil {
+		return
+	}
 	bodyBytes := bytes.NewReader(jsonBody)
-	req, err := http.NewRequest(http.MethodPost, url, bodyBytes)
+	req, err := http.NewRequest(http.MethodPost, webhook.Url, bodyBytes)
 	if err != nil {
 		return
 	}
@@ -90,5 +170,15 @@ func SendWebhook(url string, body WebhookRequest) (success bool, err error) {
 		return
 	}
 
-	return res.StatusCode == 200 || res.StatusCode == 204, nil
+	if res.StatusCode != 204 {
+		var werror WebhookError
+		var body []byte
+		body, err = io.ReadAll(res.Body)
+		err = json.Unmarshal(body, &werror)
+		if err != nil {
+			return
+		}
+		err = fmt.Errorf("webhook request error: %s", werror.Message)
+	}
+	return
 }
