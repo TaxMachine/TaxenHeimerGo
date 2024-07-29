@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+var (
+	mutex sync.Mutex
+)
+
 func FatalD(error error) {
 	fmt.Println(error.Error())
 	Discord.NotifyError(error.Error())
@@ -42,15 +46,14 @@ func intToIP(ip uint32) string {
 	return ipStr
 }
 
-func lookupServer(ctx context.Context) {
+func randomServer(ctx context.Context, serverChan chan struct{}) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-serverChan:
 			ip := intToIP(randomIP())
-			var port uint16 = 25565
-			server, err := Minecraft.NewMinecraftServer(ip, port, "1.20.2")
+			server, err := Minecraft.NewMinecraftServer(ip, 25565, "1.20.2")
 			if err != nil {
 				continue
 			}
@@ -68,7 +71,7 @@ func lookupServer(ctx context.Context) {
 }
 
 func main() {
-	THREADS := 30
+	THREADS := 100
 	err := godotenv.Load(".env")
 	if err != nil {
 		log.Fatal(err)
@@ -79,10 +82,15 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	serverChan := make(chan struct{}, THREADS)
 	var wg sync.WaitGroup
 	for i := 0; i < THREADS; i++ {
 		wg.Add(1)
-		go lookupServer(ctx)
+		go func() {
+			defer wg.Done()
+			randomServer(ctx, serverChan)
+		}()
+		serverChan <- struct{}{}
 	}
 
 	wg.Wait()
