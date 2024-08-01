@@ -1,22 +1,15 @@
 # TaxenHeimer
 As the name says it, this is a project CoppenHeimer clone I made in Golang
-Right now there's a bunch of crap in it but feel free to suggest features through the issues
+
+The scanner uses IP ranges to scan for Minecraft servers either on the default port (25565)
+or it finds the port by looking at the SRV record of the domain.
+
+For the time being, the scanner is not multithreaded and I need help to find a way to avoid deadlocks
 
 ## How to run
-Clone the repo
 ```bash
 git clone https://github.com/TaxMachine/TaxenHeimerGo.git
-```
-
-Install the dependencies
-```bash
 go get
-```
-
-Build and run the project
-```bash
 go build
-```
-```bash
 ./TaxenHeimer
 ```
