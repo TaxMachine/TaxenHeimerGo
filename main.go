@@ -3,18 +3,25 @@ package main
 import (
 	"TaxenHeimer/Discord"
 	"TaxenHeimer/Minecraft"
-	"context"
 	"fmt"
 	"github.com/joho/godotenv"
 	"github.com/tebeka/atexit"
 	"log"
 	"math/rand"
-	"sync"
+	"strconv"
+	"strings"
 	"time"
 )
 
 var (
-	mutex sync.Mutex
+	OvhIpRanges = []string{"" +
+		"107.189.64.0", "135.125.0.0", "135.125.128.0", "135.148.0.0", "135.148.128.0", "137.74.0.0", "139.99.0.0", "139.99.128.0", "141.227.128.0",
+		"141.227.130.0", "141.227.132.0", "141.227.134.0", "141.227.136.0", "141.227.138.0", "141.227.140.0", "141.94.0.0", "141.95.0.0", "141.95.128.0",
+		"142.4.192.0", "142.44.128.0", "142.44.140.0", "144.217.0.0", "145.239.0.0", "146.59.0.0", "146.59.0.0", "147.135.0.0", "147.135.128.0", "148.113.0.0",
+		"148.113.128.0", "149.202.0.0", "149.56.0.0", "151.80.0.0", "15.204.0.0", "15.204.128.0", "152.228.128.0", "15.235.0.0", "15.235.128.0", "158.69.0.0",
+		"162.19.0.0", "162.19.128.0", "164.132.0.0", "167.114.0.0", "167.114.128.0", "167.114.192.0", "176.31.0.0", "178.32.0.0", "185.45.160.0", "188.165.0.0",
+		"192.240.152.0", "192.31.246.0", "192.95.0.0", "192.99.0.0", "192.99.65.0", "193.70.0.0",
+	}
 )
 
 func FatalD(error error) {
@@ -29,15 +36,15 @@ func handleSignals() {
 	}
 }
 
-func randomIP() uint32 {
-	var ip uint32 = 0
+func randomIP() int {
+	var ip = 0
 	for i := 0; i < 4; i++ {
-		ip |= uint32(rand.Intn(255)) << (uint32(i) * 8)
+		ip |= rand.Intn(255) << (i * 8)
 	}
 	return ip
 }
 
-func intToIP(ip uint32) string {
+func intToIP(ip int) string {
 	firstOctet := (ip >> 24) & 0xFF
 	secondOctet := (ip >> 16) & 0xFF
 	thirdOctet := (ip >> 8) & 0xFF
@@ -46,32 +53,54 @@ func intToIP(ip uint32) string {
 	return ipStr
 }
 
-func randomServer(ctx context.Context, serverChan chan struct{}) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-serverChan:
-			ip := intToIP(randomIP())
-			server, err := Minecraft.NewMinecraftServer(ip, 25565, "1.20.2")
-			if err != nil {
-				continue
-			}
-			info, err := server.GetStatusRequest()
-			if err != nil {
-				continue
-			}
-			err = Discord.NotifyServer(server.GetIP(), server.GetPort(), info)
-			if err != nil {
-				FatalD(err)
-				return
-			}
+func IPToInt(ip string) uint32 {
+	parts := strings.Split(ip, ".")
+	if len(parts) != 4 {
+		return 0
+	}
+
+	var ipInt uint32
+	for i, part := range parts {
+		octet, err := strconv.Atoi(part)
+		if err != nil || octet < 0 || octet > 255 {
+			return 0
 		}
+		ipInt |= uint32(octet) << uint32(24-i*8)
+	}
+
+	return ipInt
+}
+
+func enumerateServer(startIp int) {
+	for {
+		if startIp&0xFF == 255 {
+			return
+		}
+		fmt.Printf("Trying %s\n", intToIP(startIp))
+		server, err := Minecraft.NewMinecraftServer(intToIP(startIp), 25565, "1.20.2")
+		if err != nil {
+			startIp++
+			continue
+		}
+		info, err := server.GetStatusRequest()
+		if err != nil {
+			startIp++
+			continue
+		}
+		server.Close()
+		fmt.Println("VALID", intToIP(startIp))
+		err = Discord.NotifyServer(server.GetIP(), server.GetPort(), info)
+		if err != nil {
+			FatalD(err)
+			continue
+		}
+		startIp++
+		time.Sleep(2 * time.Second)
 	}
 }
 
 func main() {
-	THREADS := 100
+	//MaxAddress := math.Pow(2, 32)
 	err := godotenv.Load(".env")
 	if err != nil {
 		log.Fatal(err)
@@ -79,19 +108,7 @@ func main() {
 	}
 	atexit.Register(handleSignals)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	serverChan := make(chan struct{}, THREADS)
-	var wg sync.WaitGroup
-	for i := 0; i < THREADS; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			randomServer(ctx, serverChan)
-		}()
-		serverChan <- struct{}{}
+	for _, ip := range OvhIpRanges {
+		enumerateServer(int(IPToInt(ip)))
 	}
-
-	wg.Wait()
 }

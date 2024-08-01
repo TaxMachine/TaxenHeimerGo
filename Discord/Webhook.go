@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 type WebhookResponse struct {
@@ -177,6 +178,10 @@ func (webhook *Webhook) Send() (err error) {
 		err = json.Unmarshal(body, &werror)
 		if err != nil {
 			return
+		}
+		if werror.Message == "You are being rate limited." {
+			time.Sleep(2000)
+			err = webhook.Send()
 		}
 		err = fmt.Errorf("webhook request error: %s", werror.Message)
 	}

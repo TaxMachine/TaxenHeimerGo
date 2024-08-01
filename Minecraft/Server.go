@@ -58,6 +58,10 @@ func NewMinecraftServer(ip string, port uint16, version string) (server Server, 
 	return
 }
 
+func (srv *Server) Close() {
+	srv.sock.Close()
+}
+
 func (srv *Server) GetIP() string {
 	return srv.ip
 }
